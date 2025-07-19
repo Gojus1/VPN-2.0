@@ -1,0 +1,27 @@
+#include <iostream>
+#include <string>
+#include <cstring>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <sstream>
+
+#define PORT 5000
+#define BUFSIZE 8192
+
+std::string resolve_host(const std::string& host) {
+    hostent* server = gethostbyname(host.c_str());
+    if (!server) {
+        std::cerr << "[ERROR] Could not resolve " << host << "\n";
+        return "";
+    }
+    return inet_ntoa(*(struct in_addr*)server->h_addr);
+}
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+kkkk
