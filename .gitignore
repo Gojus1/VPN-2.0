@@ -21,14 +21,6 @@ CMakeCache.txt
 cmake_install.cmake
 Makefile
 
-# === Binaries ===
-router
-vpn_sim
-vpn_client
-vpn_client.exe
-server
-server.exe
-
 # === Backup / Temp ===
 *.bak
 *~

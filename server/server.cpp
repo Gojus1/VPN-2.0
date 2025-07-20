@@ -35,15 +35,25 @@ void handle_client(int client_fd) {
     size_t sep = line.find(':');
     if (sep != std::string::npos) {
         host = line.substr(0, sep);
-        try {
-            port = std::stoi(line.substr(sep + 1));
-        } catch (...) {
-            std::cerr << "[ERROR] Invalid port format. Using default 80.\n";
+        std::string portPart = line.substr(sep + 1);
+        int parsedPort = 0;
+        for (char c : portPart) {
+            if (c >= '0' && c <= '9') {
+                parsedPort = parsedPort * 10 + (c - '0');
+            } else {
+                break;
+            }
+        }
+        if (parsedPort > 0 && parsedPort <= 65535) {
+            port = parsedPort;
+        } else {
+            std::cerr << "[ERROR] Invalid port format. Using default 80\n";
         }
     } else {
-        std::cerr << "[ERROR] Invalid format. Using default values.\n";
+        std::cerr << "[ERROR] Invalid format. Using default values\n";
         host = "httpbin.org";
     }
+
 
     std::string dest_ip = resolve_host(host);
     if (dest_ip.empty()) {
@@ -63,25 +73,25 @@ void handle_client(int client_fd) {
         return;
     }
 
-std::string full_request;
+    std::string full_request;
 
-std::string leftover;
-std::getline(iss, line);
-while (std::getline(iss, line)) {
-    leftover += line + "\n";
-}
-full_request += leftover;
-
-while (full_request.find("\r\n\r\n") == std::string::npos) {
-    len = recv(client_fd, buffer, BUFSIZE - 1, 0);
-    if (len <= 0) {
-        std::cerr << "[ERROR] Client closed before sending request.\n";
-        close(client_fd);
-        return;
+    std::string leftover;
+    std::getline(iss, line);
+    while (std::getline(iss, line)) {
+        leftover += line + "\n";
     }
-    buffer[len] = '\0';
-    full_request += buffer;
-}
+    full_request += leftover;
+
+    while (full_request.find("\r\n\r\n") == std::string::npos) {
+        len = recv(client_fd, buffer, BUFSIZE - 1, 0);
+        if (len <= 0) {
+            std::cerr << "[ERROR] Client closed before sending request.\n";
+            close(client_fd);
+            return;
+        }
+        buffer[len] = '\0';
+        full_request += buffer;
+    }
 
     send(forward_fd, full_request.c_str(), full_request.size(), 0);
 
