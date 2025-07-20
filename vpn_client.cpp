@@ -6,7 +6,7 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
-#define SERVER_IP "143.110.228.242"
+#define SERVER_IP "IP_PASTE"
 #define SERVER_PORT 5000
 #define DEST_HOST "httpbin.org"
 #define DEST_PORT 80
