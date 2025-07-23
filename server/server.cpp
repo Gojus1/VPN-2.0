@@ -19,41 +19,42 @@ std::string resolve_host(const std::string& host) {
     }
     return inet_ntoa(*(struct in_addr*)server->h_addr);
 }
+
 void handle_client(int client_fd) {
     char buffer[BUFSIZE];
-    std::string line;
     int len = recv(client_fd, buffer, BUFSIZE - 1, 0);
     if (len <= 0) return;
     buffer[len] = '\0';
 
     std::istringstream iss(buffer);
-    std::getline(iss, line);
+    std::string first_line;
+    std::getline(iss, first_line);
 
-    std::string host;
+    std::string host = "httpbin.org";
     int port = 80;
 
-    size_t sep = line.find(':');
-    if (sep != std::string::npos) {
-        host = line.substr(0, sep);
-        std::string portPart = line.substr(sep + 1);
-        int parsedPort = 0;
-        for (char c : portPart) {
-            if (c >= '0' && c <= '9') {
-                parsedPort = parsedPort * 10 + (c - '0');
-            } else {
+    // To check clients request
+    if (first_line.rfind("GET", 0) == 0 || first_line.rfind("POST", 0) == 0) {
+        std::string line;
+        while (std::getline(iss, line)) {
+            if (line.find("Host:") == 0) {
+                host = line.substr(5);
+                while (!host.empty() && (host.front() == ' ' || host.front() == '\t'))
+                    host.erase(host.begin());
+                if (!host.empty() && host.back() == '\r')
+                    host.pop_back();
                 break;
             }
         }
-        if (parsedPort > 0 && parsedPort <= 65535) {
-            port = parsedPort;
-        } else {
-            std::cerr << "[ERROR] Invalid port format. Using default 80\n";
-        }
     } else {
-        std::cerr << "[ERROR] Invalid format. Using default values\n";
-        host = "httpbin.org";
+        size_t sep = first_line.find(':');
+        if (sep != std::string::npos) {
+            host = first_line.substr(0, sep);
+            int parsedPort = std::stoi(first_line.substr(sep + 1));
+            if (parsedPort > 0 && parsedPort <= 65535)
+                port = parsedPort;
+        }
     }
-
 
     std::string dest_ip = resolve_host(host);
     if (dest_ip.empty()) {
@@ -73,27 +74,7 @@ void handle_client(int client_fd) {
         return;
     }
 
-    std::string full_request;
-
-    std::string leftover;
-    std::getline(iss, line);
-    while (std::getline(iss, line)) {
-        leftover += line + "\n";
-    }
-    full_request += leftover;
-
-    while (full_request.find("\r\n\r\n") == std::string::npos) {
-        len = recv(client_fd, buffer, BUFSIZE - 1, 0);
-        if (len <= 0) {
-            std::cerr << "[ERROR] Client closed before sending request.\n";
-            close(client_fd);
-            return;
-        }
-        buffer[len] = '\0';
-        full_request += buffer;
-    }
-
-    send(forward_fd, full_request.c_str(), full_request.size(), 0);
+    send(forward_fd, buffer, len, 0);
 
     while ((len = recv(forward_fd, buffer, BUFSIZE, 0)) > 0) {
         send(client_fd, buffer, len, 0);
@@ -102,6 +83,7 @@ void handle_client(int client_fd) {
     close(forward_fd);
     close(client_fd);
 }
+
 
 int main() {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
