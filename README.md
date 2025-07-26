@@ -102,6 +102,6 @@ MIT — do whatever. No warranty. Use with caution.
 
 ---
 
-## Author
+## Authors
 
 > [Gojus1](https://github.com/Gojus1) and [GreyClouds](https://github.com/greycloudss)
