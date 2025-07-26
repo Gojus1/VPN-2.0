@@ -104,4 +104,4 @@ MIT — do whatever. No warranty. Use with caution.
 
 ## Author
 
-> [Gojus1](https://github.com/Gojus1) and [GreyCloudss](https://github.com/greycloudss)
+> [Gojus1](https://github.com/Gojus1) and [GreyClouds](https://github.com/greycloudss)
