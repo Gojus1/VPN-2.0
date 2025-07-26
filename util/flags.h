@@ -1,5 +1,7 @@
 #include <iostream>
-
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <string>
 
 struct Flags { //stores credentials and ipv4:port and flags such as multi vpn chaining or something
 	int port;
@@ -7,18 +9,20 @@ struct Flags { //stores credentials and ipv4:port and flags such as multi vpn ch
 	std::string pass;
 	bool multi; // this is for when i decide to add fragmenting the conn
 
-	void parseIPv4(std::string ipv4) {
-		int part = 0;
-
-    	for (size_t i = 0; i < ipv4.size(); ++i) {
-    	    char c = this->ipv4[i];
-    	    if (c == '.') {
-    	        ++part;
-    	        ipv4[part] = 0;
-    	    } else {
-    	        ipv4[part] = ipv4[part] * 10 + (c - '0');
-    	    }
-    	}
+	void parseIPv4(const std::string& ip) {
+	    int part = 0;
+	    std::string num;
+	    for (char c : ip) {
+	        if (c == '.') {
+	            this->ipv4[part++] = std::stoi(num);
+	            num.clear();
+	        } else {
+	            num += c;
+	        }
+	    }
+	    if (!num.empty() && part < 4) {
+	        this->ipv4[part] = std::stoi(num);
+	    }
 	}
 
 	Flags() {	// basically default construtor that is empty
