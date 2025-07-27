@@ -1,5 +1,5 @@
 #include "util/flags.h"
-#include "vpn_client.h"
+#include "user/vpn_client.h"
 
 // for now this is only for user things
 Flags parseFlags(int argc, const char** argv) {

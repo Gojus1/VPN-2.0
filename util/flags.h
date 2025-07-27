@@ -1,9 +1,10 @@
+#pragma once
 #include <iostream>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <string>
 
-struct Flags { //stores credentials and ipv4:port and flags such as multi vpn chaining or something
+typedef struct Flags { //stores credentials and ipv4:port and flags such as multi vpn chaining or something
 	int port;
 	unsigned ipv4[4];
 	std::string pass;

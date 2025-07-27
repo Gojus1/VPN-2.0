@@ -1,5 +1,8 @@
 #pragma once
-#include "util/flags.h"
+#include "../util/flags.h"
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
 
 class Client {
 public:
