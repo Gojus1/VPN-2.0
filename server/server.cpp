@@ -60,46 +60,57 @@ void handle_client(socket_t client_fd) {
         return;
     }
 
-       std::cerr << "[DEBUG] Received:\n" << request << "\n"; //FOR TESTING
+    std::cerr << "[DEBUG] Received:\n" << request << "\n"; // THIS FOR TESTING
 
     std::istringstream req_stream(request);
     std::string first_line;
     std::getline(req_stream, first_line);
+    if (!first_line.empty() && first_line.back() == '\r')
+        first_line.pop_back();
 
     std::string host = "httpbin.org";
     int port = 80;
 
-    //Need this for other clients
-//////////////////////////////////////////////////////////////////////////////////
+    //For other clients like from browser
+///////////////////////////////////////////////////////////////////////////////
     if (first_line.rfind("GET", 0) == 0 || first_line.rfind("POST", 0) == 0) {
         std::string line;
         while (std::getline(req_stream, line)) {
-            if (line.find("Host:") == 0) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+
+            if (line.find("Host:") == 0 || line.find("host:") == 0) {
                 host = line.substr(5);
-                while (!host.empty() && (host.front() == ' ' || host.front() == '\t'))
-                    host.erase(host.begin());
-                if (!host.empty() && host.back() == '\r')
-                    host.pop_back();
+                host.erase(0, host.find_first_not_of(" \t\r\n"));
+                host.erase(host.find_last_not_of(" \t\r\n") + 1);
                 break;
             }
         }
 
-        size_t http_pos = first_line.find("http://");
-        if (http_pos != std::string::npos) {
-            size_t path_pos = first_line.find('/', http_pos + 7);
-            if (path_pos != std::string::npos) {
-                std::string method = first_line.substr(0, first_line.find(' '));
-                std::string relative_path = first_line.substr(path_pos);
-                std::string version = first_line.substr(first_line.rfind(' '));
-                first_line = method + " " + relative_path + version;
-            }
+        size_t method_end = first_line.find(' ');
+        std::string method = first_line.substr(0, method_end);
+
+        size_t last_space = first_line.rfind(' ');
+        std::string version = first_line.substr(last_space + 1);
+
+        std::string middle = first_line.substr(method_end + 1, last_space - method_end - 1);
+        
+        std::string relative_path = "/";
+        if (middle.rfind("http://", 0) == 0) {
+            size_t slash_pos = middle.find('/', 7);
+            if (slash_pos != std::string::npos)
+                relative_path = middle.substr(slash_pos);
+        } else {
+            relative_path = middle;
         }
+        
+        first_line = method + " " + relative_path + " " + version;
 
         size_t first_line_end = request.find("\r\n");
         std::string headers = request.substr(first_line_end + 2);
         std::ostringstream rebuilt;
         rebuilt << first_line << "\r\n" << headers;
         request = rebuilt.str();
+
     } else {
         size_t sep = first_line.find(':');
         if (sep != std::string::npos) {
@@ -107,11 +118,11 @@ void handle_client(socket_t client_fd) {
             int parsedPort = std::stoi(first_line.substr(sep + 1));
             if (parsedPort > 0 && parsedPort <= 65535) port = parsedPort;
         }
-        request = request.substr(first_line.length() + 1);
+        request = request.substr(first_line.length() + 2);
     }
+///////////////////////////////////////////////////////////////////////////////////
+    std::cerr << "[DEBUG] Forwarding:\n" << request << "\n"; //THIS FOR TESTING
 
-        std::cerr << "[DEBUG] Forwarding:\n" << request << "\n"; // FOR TESTING
-//////////////////////////////////////////////////////////////////////////////////
     std::string dest_ip = resolve_host(host);
     if (dest_ip.empty()) {
         CLOSESOCKET(client_fd);
@@ -125,7 +136,6 @@ void handle_client(socket_t client_fd) {
 
     socket_t forward_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (connect(forward_fd, (sockaddr*)&dest, sizeof(dest)) < 0) {
-       // std::cerr << "[ERROR] Could not connect to " << dest_ip << "\n";
         CLOSESOCKET(client_fd);
         return;
     }
@@ -139,6 +149,7 @@ void handle_client(socket_t client_fd) {
     CLOSESOCKET(forward_fd);
     CLOSESOCKET(client_fd);
 }
+
 
 
 
