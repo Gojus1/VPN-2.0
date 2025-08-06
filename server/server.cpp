@@ -60,6 +60,8 @@ void handle_client(socket_t client_fd) {
         return;
     }
 
+       std::cerr << "[DEBUG] Received:\n" << request << "\n"; //FOR TESTING
+
     std::istringstream req_stream(request);
     std::string first_line;
     std::getline(req_stream, first_line);
@@ -107,6 +109,8 @@ void handle_client(socket_t client_fd) {
         }
         request = request.substr(first_line.length() + 1);
     }
+
+        std::cerr << "[DEBUG] Forwarding:\n" << request << "\n"; // FOR TESTING
 //////////////////////////////////////////////////////////////////////////////////
     std::string dest_ip = resolve_host(host);
     if (dest_ip.empty()) {
@@ -121,7 +125,7 @@ void handle_client(socket_t client_fd) {
 
     socket_t forward_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (connect(forward_fd, (sockaddr*)&dest, sizeof(dest)) < 0) {
-        std::cerr << "[ERROR] Could not connect to " << dest_ip << "\n";
+       // std::cerr << "[ERROR] Could not connect to " << dest_ip << "\n";
         CLOSESOCKET(client_fd);
         return;
     }
