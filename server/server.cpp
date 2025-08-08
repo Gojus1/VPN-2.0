@@ -4,6 +4,18 @@
 #include <sstream>
 #include <thread>
 
+using std::string;
+using std::cout;
+using std::cerr;
+using std::endl;
+using std::thread;
+using std::ostringstream;
+using std::istringstream;
+using std::stoi;
+using std::thread;
+using std::unique_ptr;
+using std::max;
+
 #ifdef _WIN32
     #include <winsock2.h>
     #include <ws2tcpip.h>
@@ -35,10 +47,10 @@
 #define PORT 5000
 #define BUFSIZE 8192
 
-std::string resolve_host(const std::string& host) {
+string resolve_host(const string& host) {
     hostent* server = gethostbyname(host.c_str());
     if (!server) {
-        std::cerr << "[ERROR] Could not resolve " << host << "\n";
+        cerr << "[ERROR] Could not resolve " << host << "\n";
         return "";
     }
     return inet_ntoa(*(struct in_addr*)server->h_addr);
@@ -52,7 +64,7 @@ void handle_client(socket_t client_fd) {
     while ((len = recv(client_fd, buffer, BUFSIZE - 1, 0)) > 0) {
         buffer[len] = '\0';
         request += buffer;
-        if (request.find("\r\n\r\n") != std::string::npos) break;
+        if (request.find("\r\n\r\n") != string::npos) break;
     }
 
     if (request.empty()) {
@@ -60,22 +72,86 @@ void handle_client(socket_t client_fd) {
         return;
     }
 
-    std::cerr << "[DEBUG] Received:\n" << request << "\n"; // THIS FOR TESTING
+    cerr << "[DEBUG] Received:\n" << request << "\n"; // THIS FOR TESTING
 
-    std::istringstream req_stream(request);
-    std::string first_line;
-    std::getline(req_stream, first_line);
+    istringstream req_stream(request);
+    string first_line;
+    getline(req_stream, first_line);
     if (!first_line.empty() && first_line.back() == '\r')
         first_line.pop_back();
 
-    std::string host = "httpbin.org";
+    string host = "httpbin.org";
     int port = 80;
 
+//For HTTPS
+///////////////////////////////////////////////////////////////
+if (first_line.rfind("CONNECT", 0) == 0) {
+    size_t host_start = first_line.find(' ') + 1;
+    size_t host_end = first_line.find(' ', host_start);
+    std::string target = first_line.substr(host_start, host_end - host_start);
+
+    size_t sep = target.find(':');
+    if (sep != string::npos) {
+        host = target.substr(0, sep);
+        port = stoi(target.substr(sep + 1));
+    } else {
+        host = target;
+        port = 443;
+    }
+
+    // Resolve and connect to target
+    string dest_ip = resolve_host(host);
+    if (dest_ip.empty()) {
+        CLOSESOCKET(client_fd);
+        return;
+    }
+
+    sockaddr_in dest{};
+    dest.sin_family = AF_INET;
+    dest.sin_port = htons(port);
+    inet_pton(AF_INET, dest_ip.c_str(), &dest.sin_addr);
+
+    socket_t forward_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (connect(forward_fd, (sockaddr*)&dest, sizeof(dest)) < 0) {
+        CLOSESOCKET(client_fd);
+        return;
+    }
+    const char* response = "HTTP/1.1 200 Connection Established\r\n\r\n";
+    send(client_fd, response, strlen(response), 0);
+
+    fd_set fds;
+    char tunnel_buf[BUFSIZE];
+
+    while (true) {
+        FD_ZERO(&fds);
+        FD_SET(client_fd, &fds);
+        FD_SET(forward_fd, &fds);
+        int max_fd = max(client_fd, forward_fd) + 1;
+
+        if (select(max_fd, &fds, nullptr, nullptr, nullptr) < 0)
+            break;
+        if (FD_ISSET(client_fd, &fds)) {
+            int n = recv(client_fd, tunnel_buf, BUFSIZE, 0);
+            if (n <= 0) break;
+            send(forward_fd, tunnel_buf, n, 0);
+        }
+        if (FD_ISSET(forward_fd, &fds)) {
+            int n = recv(forward_fd, tunnel_buf, BUFSIZE, 0);
+            if (n <= 0) break;
+            send(client_fd, tunnel_buf, n, 0);
+        }
+    }
+
+    CLOSESOCKET(forward_fd);
+    CLOSESOCKET(client_fd);
+    return;
+}
+    
     //For other clients like from browser
 ///////////////////////////////////////////////////////////////////////////////
     if (first_line.rfind("GET", 0) == 0 || first_line.rfind("POST", 0) == 0) {
-        std::string line;
-        while (std::getline(req_stream, line)) {
+        string line;
+        while (getline(req_stream, line)) {
             if (!line.empty() && line.back() == '\r') line.pop_back();
 
             if (line.find("Host:") == 0 || line.find("host:") == 0) {
@@ -87,17 +163,17 @@ void handle_client(socket_t client_fd) {
         }
 
         size_t method_end = first_line.find(' ');
-        std::string method = first_line.substr(0, method_end);
+        string method = first_line.substr(0, method_end);
 
         size_t last_space = first_line.rfind(' ');
-        std::string version = first_line.substr(last_space + 1);
+        string version = first_line.substr(last_space + 1);
 
-        std::string middle = first_line.substr(method_end + 1, last_space - method_end - 1);
-        
-        std::string relative_path = "/";
+        string middle = first_line.substr(method_end + 1, last_space - method_end - 1);
+
+        string relative_path = "/";
         if (middle.rfind("http://", 0) == 0) {
             size_t slash_pos = middle.find('/', 7);
-            if (slash_pos != std::string::npos)
+            if (slash_pos != string::npos)
                 relative_path = middle.substr(slash_pos);
         } else {
             relative_path = middle;
@@ -106,24 +182,24 @@ void handle_client(socket_t client_fd) {
         first_line = method + " " + relative_path + " " + version;
 
         size_t first_line_end = request.find("\r\n");
-        std::string headers = request.substr(first_line_end + 2);
-        std::ostringstream rebuilt;
+        string headers = request.substr(first_line_end + 2);
+        ostringstream rebuilt;
         rebuilt << first_line << "\r\n" << headers;
         request = rebuilt.str();
 
     } else {
         size_t sep = first_line.find(':');
-        if (sep != std::string::npos) {
+        if (sep != string::npos) {
             host = first_line.substr(0, sep);
-            int parsedPort = std::stoi(first_line.substr(sep + 1));
+            int parsedPort = stoi(first_line.substr(sep + 1));
             if (parsedPort > 0 && parsedPort <= 65535) port = parsedPort;
         }
         request = request.substr(first_line.length() + 2);
     }
 ///////////////////////////////////////////////////////////////////////////////////
-    std::cerr << "[DEBUG] Forwarding:\n" << request << "\n"; //THIS FOR TESTING
+    cerr << "[DEBUG] Forwarding:\n" << request << "\n"; //THIS FOR TESTING
 
-    std::string dest_ip = resolve_host(host);
+    string dest_ip = resolve_host(host);
     if (dest_ip.empty()) {
         CLOSESOCKET(client_fd);
         return;
@@ -158,7 +234,7 @@ int main() {
 
     socket_t server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd == INVALID_SOCKET) {
-        std::cerr << "[ERROR] Failed to create socket.\n";
+        cerr << "[ERROR] Failed to create socket.\n";
         CLEANUP_NETWORK();
         return 1;
     }
@@ -169,14 +245,14 @@ int main() {
     address.sin_port = htons(PORT);
 
     if (bind(server_fd, (sockaddr*)&address, sizeof(address)) < 0) {
-        std::cerr << "[ERROR] Failed to bind socket.\n";
+        cerr << "[ERROR] Failed to bind socket.\n";
         CLOSESOCKET(server_fd);
         CLEANUP_NETWORK();
         return 1;
     }
 
     listen(server_fd, 10);
-    std::cout << "[VPN PROXY] Listening on port " << PORT << "...\n";
+    cout << "[VPN PROXY] Listening on port " << PORT << "...\n";
 
     sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
@@ -187,7 +263,7 @@ int main() {
 
         if (client_fd == INVALID_SOCKET) continue;
 
-        std::thread clientThread(handle_client, client_fd);
+        thread clientThread(handle_client, client_fd);
         clientThread.detach();
         
     }
