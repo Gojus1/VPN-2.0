@@ -1,7 +1,15 @@
 #pragma once
 #include <iostream>
-#include <winsock2.h>
-#include <ws2tcpip.h>
+//windows
+// #include <winsock2.h>
+// #include <ws2tcpip.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
+
 #include <string>
 
 typedef struct Flags { //stores credentials and ipv4:port and flags such as multi vpn chaining or something
