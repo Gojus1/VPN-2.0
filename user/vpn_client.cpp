@@ -14,7 +14,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#define CLOSESOCKET close
+#define CLOSESOCKET ::close
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
 typedef int SOCKET;

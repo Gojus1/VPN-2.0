@@ -1,181 +1,204 @@
 #include <iostream>
 #include <string>
-#include <cstring>
-#include <sstream>
 #include <thread>
+#include <cstring>
 
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
-
 typedef SOCKET socket_t;
 #define CLOSESOCKET closesocket
-#define INIT_NETWORK() \
-WSADATA wsa; \
-if (WSAStartup(MAKEWORD(2,2), &wsa)!=0){ \
-std::cerr<<"WSAStartup failed\n"; return 1;}
-
-#define CLEANUP_NETWORK() WSACleanup()
-
 #else
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
 typedef int socket_t;
+#define CLOSESOCKET close
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
-#define CLOSESOCKET close
-#define INIT_NETWORK()
-#define CLEANUP_NETWORK()
-
 #endif
 
 #define PORT 5000
-#define BUFSIZE 8192
+#define BUFFER_SIZE 8192
 
-
-std::string resolve_host(const std::string& host)
+void forward_data(socket_t a, socket_t b)
 {
-    hostent* server = gethostbyname(host.c_str());
+    char buffer[BUFFER_SIZE];
+    int len;
 
-    if (!server) {
-        std::cerr << "DNS resolution failed\n";
-        return "";
+    while ((len = recv(a, buffer, BUFFER_SIZE, 0)) > 0)
+    {
+        send(b, buffer, len, 0);
     }
 
-    return inet_ntoa(*(struct in_addr*)server->h_addr);
+    CLOSESOCKET(a);
+    CLOSESOCKET(b);
 }
 
-
-void handle_client(socket_t client_fd)
+void handle_client(socket_t client)
 {
-    char buffer[BUFSIZE];
+    char buffer[BUFFER_SIZE];
+    int len = recv(client, buffer, BUFFER_SIZE - 1, 0);
 
-    int len = recv(client_fd, buffer, BUFSIZE-1, 0);
-    if (len <= 0) {
-        CLOSESOCKET(client_fd);
+    if (len <= 0)
+    {
+        CLOSESOCKET(client);
         return;
     }
 
     buffer[len] = '\0';
+    std::string request(buffer);
 
-    std::istringstream iss(buffer);
-    std::string line;
+// HTTPS
 
-    std::getline(iss, line);
+    if (request.rfind("CONNECT", 0) == 0)
+    {
+        size_t host_start = 8;
+        size_t host_end = request.find(' ', host_start);
 
-    std::string host;
+        std::string host_port = request.substr(host_start, host_end - host_start);
+
+        size_t colon = host_port.find(':');
+        std::string host = host_port.substr(0, colon);
+        int port = std::stoi(host_port.substr(colon + 1));
+
+        hostent* server = gethostbyname(host.c_str());
+        if (!server)
+        {
+            CLOSESOCKET(client);
+            return;
+        }
+
+        socket_t remote = socket(AF_INET, SOCK_STREAM, 0);
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        addr.sin_addr = *(in_addr*)server->h_addr;
+
+        if (connect(remote, (sockaddr*)&addr, sizeof(addr)) < 0)
+        {
+            CLOSESOCKET(client);
+            return;
+        }
+
+        std::string ok = "HTTP/1.1 200 Connection Established\r\n\r\n";
+        send(client, ok.c_str(), ok.size(), 0);
+
+        std::thread t1(forward_data, client, remote);
+        std::thread t2(forward_data, remote, client);
+
+        t1.detach();
+        t2.detach();
+
+        return;
+    }
+
+// HTTP
+    size_t host_pos = request.find("http://");
+    if (host_pos == std::string::npos)
+    {
+        CLOSESOCKET(client);
+        return;
+    }
+
+    host_pos += 7;
+    size_t path_pos = request.find('/', host_pos);
+
+    std::string host = request.substr(host_pos, path_pos - host_pos);
+    std::string path = request.substr(path_pos);
+
+    size_t colon = host.find(':');
     int port = 80;
 
-    size_t sep = line.find(':');
-
-    if (sep != std::string::npos)
+    if (colon != std::string::npos)
     {
-        host = line.substr(0, sep);
-        port = std::stoi(line.substr(sep+1));
+        port = std::stoi(host.substr(colon + 1));
+        host = host.substr(0, colon);
     }
-    else
+
+    hostent* server = gethostbyname(host.c_str());
+    if (!server)
     {
-        std::cerr << "Invalid proxy format\n";
-        CLOSESOCKET(client_fd);
+        CLOSESOCKET(client);
         return;
     }
 
-    std::string dest_ip = resolve_host(host);
+    socket_t remote = socket(AF_INET, SOCK_STREAM, 0);
 
-    if (dest_ip.empty())
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr = *(in_addr*)server->h_addr;
+
+    if (connect(remote, (sockaddr*)&addr, sizeof(addr)) < 0)
     {
-        CLOSESOCKET(client_fd);
+        CLOSESOCKET(client);
         return;
     }
 
-    sockaddr_in dest{};
-    dest.sin_family = AF_INET;
-    dest.sin_port = htons(port);
+    std::string new_request = request;
+    size_t first_space = new_request.find(' ');
+    size_t second_space = new_request.find(' ', first_space + 1);
 
-    inet_pton(AF_INET, dest_ip.c_str(), &dest.sin_addr);
+    new_request.replace(first_space + 1,
+                        second_space - first_space - 1,
+                        path);
 
-    socket_t forward_fd = socket(AF_INET, SOCK_STREAM, 0);
+    send(remote, new_request.c_str(), new_request.size(), 0);
 
-    if (connect(forward_fd, (sockaddr*)&dest, sizeof(dest)) < 0)
-    {
-        perror("connect");
-        CLOSESOCKET(client_fd);
-        return;
-    }
-
-    std::string request;
-
-    while ((len = recv(client_fd, buffer, BUFSIZE, 0)) > 0)
-    {
-        send(forward_fd, buffer, len, 0);
-        request.append(buffer, len);
-
-        if (request.find("\r\n\r\n") != std::string::npos)
-            break;
-    }
-
-    while ((len = recv(forward_fd, buffer, BUFSIZE, 0)) > 0)
-    {
-        send(client_fd, buffer, len, 0);
-    }
-
-    CLOSESOCKET(forward_fd);
-    CLOSESOCKET(client_fd);
+    std::thread t(forward_data, remote, client);
+    t.detach();
 }
-
 
 int main()
 {
-    INIT_NETWORK();
+#ifdef _WIN32
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2,2), &wsa);
+#endif
 
-    socket_t server_fd = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (server_fd == INVALID_SOCKET)
-    {
-        std::cerr << "Socket creation failed\n";
-        return 1;
-    }
+    socket_t server = socket(AF_INET, SOCK_STREAM, 0);
 
     int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(server, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(PORT);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(PORT);
 
-    if (bind(server_fd, (sockaddr*)&address, sizeof(address)) < 0)
+    if (bind(server, (sockaddr*)&addr, sizeof(addr)) < 0)
     {
         perror("bind");
         return 1;
     }
 
-    listen(server_fd, 10);
+    listen(server, 20);
 
-    std::cout << "[VPN PROXY] Listening on port " << PORT << "\n";
+    std::cout << "HTTP/HTTPS Proxy running on port " << PORT << std::endl;
 
     while (true)
     {
-        sockaddr_in client_addr{};
-        socklen_t client_len = sizeof(client_addr);
+        sockaddr_in client_addr;
+        socklen_t len = sizeof(client_addr);
 
-        socket_t client_fd =
-            accept(server_fd,(sockaddr*)&client_addr,&client_len);
+        socket_t client = accept(server, (sockaddr*)&client_addr, &len);
 
-        if (client_fd == INVALID_SOCKET)
-            continue;
-
-        std::thread t(handle_client, client_fd);
-        t.detach();
+        if (client != INVALID_SOCKET)
+        {
+            std::thread(handle_client, client).detach();
+        }
     }
 
-    CLOSESOCKET(server_fd);
-    CLEANUP_NETWORK();
+    CLOSESOCKET(server);
+
+#ifdef _WIN32
+    WSACleanup();
+#endif
 
     return 0;
 }
