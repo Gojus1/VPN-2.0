@@ -25,8 +25,8 @@ typedef int socket_t;
 
 #define PORT 5000
 #define BUFFER_SIZE 8192
-#define CERT_FILE "cert.pem"
-#define KEY_FILE "key.pem"
+#define CERT_FILE "../cert.pem"
+#define KEY_FILE "../key.pem"
 
 void forward_data(socket_t a, socket_t b, SSL* ssl_a = nullptr, SSL* ssl_b = nullptr)
 {
