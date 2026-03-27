@@ -2,8 +2,6 @@
 #include <iostream>
 #include <string>
 #include <cstring>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -48,6 +46,7 @@ Client::Client(const Flags& config) {
     }
 
     SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
+
     if (sock == INVALID_SOCKET) {
         std::cerr << "Socket creation failed\n";
         return;
@@ -61,55 +60,28 @@ Client::Client(const Flags& config) {
         return;
     }
 
-    SSL_library_init();
-    OpenSSL_add_all_algorithms();
-    SSL_load_error_strings();
-    const SSL_METHOD* method = TLS_client_method();
-    SSL_CTX* ctx = SSL_CTX_new(method);
-    if (!ctx) {
-        std::cerr << "Unable to create SSL context\n";
-        CLOSESOCKET(sock);
-        return;
-    }
-
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
-
-    SSL* ssl = SSL_new(ctx);
-    SSL_set_fd(ssl, sock);
-
-    if (SSL_connect(ssl) <= 0) {
-        ERR_print_errors_fp(stderr);
-        SSL_free(ssl);
-        SSL_CTX_free(ctx);
-        CLOSESOCKET(sock);
-        return;
-    }
-
-    std::cout << "Connected to VPN server over TLS\n";
+    std::cout << "Connected to VPN server\n";
 
     std::string target = "httpbin.org:80\r\n";
-    SSL_write(ssl, target.c_str(), target.size());
+    send(sock, target.c_str(), target.size(), 0);
 
     std::string request =
         "GET /ip HTTP/1.1\r\n"
         "Host: httpbin.org\r\n"
         "Connection: close\r\n\r\n";
 
-    SSL_write(ssl, request.c_str(), request.size());
+    send(sock, request.c_str(), request.size(), 0);
 
     char buffer[4096];
     int bytesReceived;
 
     std::cout << "\nResponse:\n\n";
 
-    while ((bytesReceived = SSL_read(ssl, buffer, sizeof(buffer)-1)) > 0) {
+    while ((bytesReceived = recv(sock, buffer, sizeof(buffer)-1, 0)) > 0) {
         buffer[bytesReceived] = '\0';
         std::cout << buffer;
     }
 
-    SSL_shutdown(ssl);
-    SSL_free(ssl);
-    SSL_CTX_free(ctx);
     CLOSESOCKET(sock);
 
 #ifdef _WIN32
